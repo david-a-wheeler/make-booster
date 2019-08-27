@@ -4,7 +4,7 @@ Generate Makefile dependencies of a Python program given as file $1.
 WARNING: Do *NOT* use this on untrusted input, as it runs the code of $1.
 
 The expectation is that this script will be run with input on some filename
-BBB.py, and its output will go to deps/BBB.py.d
+`BBB.py`, and its output will go to `deps/BBB.py.d`.
 BBB will typically be a path including a directory. We intentionally do
 *not* remove the directory, but instead create directories as needed,
 so that we can easily handle multiple directories of code.
@@ -13,19 +13,23 @@ The idea is that a user of BBB.py will depend on the
 'executable collection' (ec) deps/BBB.py.ec, which is changed every time:
     * the dependency data deps/BBB.py.d is changed.
       This should be already handled by the Makefile, and in particular
-      this must always be forced to update whenever **/BBB.py itself changes.
+      this must always be forced to update whenever BBB.py itself changes.
     * The ec for every module directly imported by BBB.py is changed, e.g.,
-      if BBB.py imports CCC, then we depend on deps/CCC.py.ec.
+      if BBB.py imports module CC, and that module is represented by
+      file CCC.py, then we depend on deps/CCC.py.ec.
     * Any (optional) inputs used by BBB.py changes (as reported by INPUTS)
 
 This output will contain the following:
 
+The executable context for BBB depends on the BBB.py file itself:
+    deps/BBB.py.ec: BBB.py
+
 For each CCC that BBB imports:
-    deps/**/BBB.py.ec: deps/**/CCC.py.ec
+    deps/BBB.py.ec: deps/CCC.py.ec
 
 If BBB set optional INPUTS:
-    deps/**/BBB.py.inputs: BBB_INPUTS
-    deps/**/BBB.py.ec: deps/**/BBB.py.inputs
+    deps/BBB.py.inputs: BBB_INPUTS
+    deps/BBB.py.ec: deps/BBB.py.inputs
 """
 
 import sys
@@ -109,7 +113,7 @@ def generate_import_dependency(python_file, module_name, line_number):
     if not mod_file.startswith(REQUIRED_PATH_PREFIX):
         return
     stripped_mod_file = mod_file[len(REQUIRED_PATH_PREFIX)+1:]
-    # Generate deps/**/BBB.py.ec: deps/**/CCC.py.ec
+    # Generate deps/BBB.py.ec: deps/CCC.py.ec
     print(f'deps/{python_file}.ec: deps/{stripped_mod_file}.ec')
 
 IMPORT_AS_PATTERN = re.compile(r'\s*import\s+([^;#]+)\s+as\s')
@@ -163,15 +167,15 @@ def process_inputs(python_file):
     spec.loader.exec_module(module)
     # "module" is now the loaded form of python_file - do we have INPUTS?
     if 'INPUTS' in dir(module):
-        # Generate .PHONY: **/BBB.py.inputs
+        # Generate .PHONY: BBB.py.inputs
         # print(f'.PHONY: {python_file}.inputs')
         announced_inputs = module.INPUTS
         if isinstance(announced_inputs, str):
             announced_inputs = list(announced_inputs)
         formatted_inputs = ' '.join(announced_inputs)
-        # Generate deps/**/BBB.py.inputs: BBB_INPUTS
+        # Generate deps/BBB.py.inputs: BBB_INPUTS
         print(f'deps/{python_file}.inputs: {formatted_inputs}')
-        # Generate deps/**/BBB.py.ec: deps/**/BBB.py.inputs
+        # Generate deps/BBB.py.ec: deps/BBB.py.inputs
         print(f'deps/{python_file}.ec: deps/{python_file}.inputs')
 
 def main(python_file):
@@ -180,6 +184,8 @@ def main(python_file):
     if not os.path.isfile(python_file):
         print(f'File does not exist: {python_file}', file=sys.stderr)
         sys.exit(1)
+    # deps/BBB.py.ec: BBB.py
+    print(f'deps/{python_file}.ec: {python_file}')
     # We check for INPUTS and only process_inputs if it exists.
     # That way, if a Python program doesn't import cleanly, we can still
     # handle it as long as it doesn't define INPUTS

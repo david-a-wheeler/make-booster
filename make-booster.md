@@ -7,12 +7,13 @@ It requires GNU make.
 In particular:
 
 * If a Python script is modified (including one that is transitively
-  included by other Python scripts),
-  all the processes that depend on that script are rerun.
+  included by other Python scripts), or its internal inputs are modified,
+  all the processes that depend on that script (or internal inputs) are rerun.
   This dependency calculation of Python scripts is done automatically.
 * Tests and source code scans will be also run if a Python file is changed.
-* We enable "Delete on Error" to avoid accidentally including
-  corrupted data in final results.
+* We enable "Delete on Error" by defaul to avoid accidentally including
+  corrupted data in final results.  Use `make KEEP_FILES_ON_ERROR=true ...`
+  if you want to keep files generated on an error.
 * We support "grouped targets" to correctly handle processes that generate
   multiple files.
 
@@ -59,23 +60,25 @@ https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1005510 .
 However, data processing steps often involve complications that
 are not widely discussed in the literature.
 
-For example, imagine we have a program `BBB.py` that includes `CCC.py`, and
+For example, imagine we have a program `BBB.py` that includes a module CC,
+module CC is implemented by file `CCC.py`, and
 `CCC.py` internally has commands that read a fixed file `F.txt`.
-A rule that runs `BBB.py` should depend not only on `BBB.py`, but also
-`CCC.py` and `F.txt`, and if this information is
-hand-maintained it is likely to go wrong.
+A rule that runs `BBB.py` should depend not only on `BBB.py`, but also on
+`CCC.py` and `F.txt`.
+If this information is hand-maintained it is likely to go wrong.
 
 This is exactly the kind of problem `make` is designed to handle,
-but we did not find much literature on how to handle data pipelines.
+but we did not find much literature on how to handle data pipelines
+when using `make` and Python.
 We were inspired by
 ["A Super-Simple Makefile for Medium-Sized C/C++ Projects"](https://spin.atomicobject.com/2016/08/26/makefile-c-projects/)
 and
-http://make.mad-scientist.net/papers/advanced-auto-dependency-generation/ .
+<http://make.mad-scientist.net/papers/advanced-auto-dependency-generation/>.
 We use Python, and Python automatically handles import dependencies
 when a program is *run*, but that is not enough to determine whether or
 not a program should be run at all.
 
-Note: We used GNU make extensions to implement this.
+Note: We used GNU make extensions to implement this solution.
 The POSIX standard for makefiles currently lacks too many capabilities
 to be limited to it for this purpose.
 
@@ -104,7 +107,7 @@ which in turn depends on the following:
 We need a rule for creating the files that represent
 executable contexts and special inputs:
 
-~~~~
+~~~~Makefile
 # Executable context (.ec).
 deps/%.ec: deps/%.d
 	$(MKDIR_P) $(dir $@)
@@ -118,7 +121,7 @@ deps/%.inputs:
 
 We need rules for automatically generating dependency files.
 
-~~~~
+~~~~Makefile
 # Dependency file, which is auto-generated and loaded into the Makefile.
 # This is only for Python3; other rules would be needed for other languages.
 deps/%.py.d: %.py
@@ -143,7 +146,7 @@ and later read them in.
 We also need to declare the .ec and .d files as secondaries so that they
 are not deleted once their processing is done.
 
-~~~~
+~~~~Makefile
 # Include dependencies in Makefile, and keep .de and .ec files
 PYTHON_ECS := $(PYTHON_SRC:%.py=deps/%.py.ec)
 PYTHON_DEPS := $(PYTHON_SRC:%.py=deps/%.py.d)
@@ -164,7 +167,7 @@ that cannot have a changed answer (presuming the underlying environment
 has not changed).  A test of BBB depends on the executable context of BBB.
 Therefore, our rule is:
 
-~~~~
+~~~~Makefile
 tested/%.py.test: %.py deps/%.py.ec
 	$(MKDIR_P) $(dir $@)
 	pytest $< && touch $@
@@ -178,7 +181,7 @@ is already included.
 Our starting test rule simply provides a name to ensure that
 "make test" can always be used:
 
-~~~~
+~~~~Makefile
 test:
 ~~~~
 
@@ -280,7 +283,9 @@ BBCC.marker: .... # dependencies of process to generate BB and CC
 <TAB>touch $@
 ~~~~
 
-If you incorrectly write:
+Some `make` users would incorrectly write the following thinking that
+this means that “both BB and CC are simultaneously created
+by running the command”:
 
 ~~~~
 BB CC: DD EE
@@ -304,7 +309,9 @@ BB CC &: DD EE
 <TAB>command
 ~~~~
 
-The bad news is that this doesn’t help us today.
+The bad news is that this doesn’t help us today, and using it requires that
+all users of the Makefile have a version of GNU make with this support.
+
 Currently, if you want a grouped target, you need to create an
 intermediary marker (aka sentinel) that indicates
 that all the grouped targets were
