@@ -13,6 +13,7 @@ MKDIR_P ?= mkdir -p
 GEN_PYTHON_DEPENDENCIES ?= make-booster/gen_python_dependencies.py
 
 # First, identify the source code we're dealing with
+SRC_DIR ?= scripts
 PYTHON_SRC := $(shell find $(SRC_DIR) -name '*.py')
 SHELL_SRC := $(shell find $(SRC_DIR) -name '*.sh')
 ALL_SRC := $(PYTHON_SRC) $(SHELL_SRC)
@@ -50,6 +51,9 @@ scanned/%.sh.scan: %.sh
 .PHONY: scan
 scan: $(patsubst %,scanned/%.scan,$(PYTHON_SRC) $(SHELL_SRC))
 
+# If not set otherwise, use pytest as the Python tester.
+PYTHON_TESTER ?= pytest
+
 # We create a "tested/BBB.test" file every time a test succeeds
 # with BBB as the starting point.  That enables us to skip tests
 # that cannot have a changed answer (presuming the underlying environment
@@ -60,7 +64,7 @@ scan: $(patsubst %,scanned/%.scan,$(PYTHON_SRC) $(SHELL_SRC))
 
 tested/%.py.test: %.py deps/%.py.ec
 	$(MKDIR_P) $(dir $@)
-	pytest $< && touch $@
+	$(PYTHON_TESTER) $< && touch $@
 
 # "make test" runs all tests (testing is a kind of dynamic analysis).
 # To add a file to the set of programs to use for testing, add a rule

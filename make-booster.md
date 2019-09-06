@@ -2,31 +2,19 @@
 
 "Make-booster" is a makefile fragment intended to simplify
 creating data pipelines with Python and GNU make.
+In particular, it helps reliably *reproduce* results
+and it automatically determines what needs to run.
+
 It requires GNU make.
 
-In particular:
+See the README file for a brief description of what it does,
+how to install it, and a quickstart on how to use it.
 
-* If a Python script is modified (including one that is transitively
-  included by other Python scripts), or its internal inputs are modified,
-  all the processes that depend on that script (or internal inputs) are rerun.
-  This dependency calculation of Python scripts is done automatically.
-* Tests and source code scans will be also run if a Python file is changed.
-* We enable "Delete on Error" by defaul to avoid accidentally including
-  corrupted data in final results.  Use `make KEEP_FILES_ON_ERROR=true ...`
-  if you want to keep files generated on an error.
-* We support "grouped targets" to correctly handle processes that generate
-  multiple files.
+This document provides much more detail on the background
+(many data pipelines use make), the problems when doing so, and
+technical specifics about how we implemented this.
 
-To use it, just add this to your Makefile:
-
-~~~~
-include make-booster/booster.makefile
-~~~~
-
-The text below tries to first describe the problems we're trying to solve,
-then it discusses how we solve them.
-
-## Many data pipelines use make
+## Background: Many data pipelines use make
 
 Many projects involve a "data pipeline" that
 loads multiple data sources, processes them
@@ -236,18 +224,6 @@ We use `strip` so a space after a comma is not misinterpreted.
 
 ~~~~
 uses = deps/$(strip $(1)).ec $(if $(SKIP_SCANS),,scanned/$(strip $(1)).scan)
-~~~~
-
-## Resulting rules
-
-The expected result is a large Makefile with many rules,
-where each rule looks like this:
-
-~~~~
-RESULT.csv: \
-  INPUT.csv \
-  $(call uses,scripts/MYSCRIPT.py)
-	$(PYTHON3) scripts/MYSCRIPT.py < $< > $@
 ~~~~
 
 ## Delete on Error
