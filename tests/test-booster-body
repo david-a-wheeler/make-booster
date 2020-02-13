@@ -1,0 +1,113 @@
+#!/bin/sh
+
+set -eux
+
+echo 'Starting test of make-booster'
+
+# Return true iff all given files (in $@) are empty files
+is_empty () {
+  for file in "$@"; do
+    if ! test -f "$file" || test -s "$file"; then
+      printf "Not an empty file: $file\n"
+      exit 1
+    fi
+  done
+}
+
+# Return true if $1 is an executable
+find_executable_or_die () {
+  if ! command -v "$1" 2>/dev/null >&2 ; then
+    echo "Could not find $1 (Maybe you need to run pipenv run ...)." >&2
+    exit 1
+  fi
+  return 0
+}
+
+# Clean up any previous test results
+rm -fr test-results/ deps/ deps-backup/
+
+# Check that our test environment is properly configured.
+find_executable_or_die pylint
+find_executable_or_die pytest
+find_executable_or_die shellcheck
+
+echo 'Run a check - this will cause dependency information to be generated.'
+make -f test-booster.makefile check
+# Only a check, should not have produced data
+! test -f 'test-results/x.dat'
+! test -f 'test-results/combo.dat'
+# Did scan various files
+is_empty 'deps/test-src/show-args.sh.scan' \
+  deps/test-src/ccc.py.scan deps/test-src/demonkey.sh.scan \
+  deps/test-src/bbb.py.scan
+# We now have information on source context
+is_empty 'deps/test-src/bbb.py.sc'
+grep -Fq 'deps/test-src/bbb.py.sc: deps/test-src/ccc.py.sc' \
+        deps/test-src/bbb.py.d
+grep -Fq 'deps/test-src/bbb.py.ec: deps/test-src/ccc.py.ec' \
+        deps/test-src/bbb.py.d
+# bbb.py doesn't have any inputs, we shouldn't generate any
+! grep -Fq '.inputs' deps/test-src/bbb.py.d
+grep -Fq 'deps/test-src/ccc.py.inputs: test-src/f.txt' \
+        deps/test-src/ccc.py.d
+grep -Fq 'deps/test-src/ccc.py.ec: deps/test-src/ccc.py.inputs' \
+        deps/test-src/ccc.py.d
+# We don't produce a .ec file for bbb.py. It's produced if we run a
+# test in bbb.py (there's no test for us to run, so we never request one)
+# or when we execute bbb.py (but we didn't).
+! test -f 'deps/test-src/bbb.py.ec'
+
+echo 'Ensure we do not run a scanner with "make scan"'
+# Run a scan with garbage scanner settings.
+# We haven't changed anything, so we shouldn't run a scanner
+make -f test-booster.makefile PYTHON_SCANNER=false SHELL_SCANNER=false scan
+
+# Run, this should actually produce things
+echo 'Run make - produce things'
+make -d -f test-booster.makefile
+test -f 'test-results/x.dat'
+test -f 'test-results/combo.dat'
+grep -q 'Main run' 'test-results/combo.dat'
+! grep -q 'monkey' 'test-results/combo.dat'
+
+# We now produce the .ec files when we try to run the programs.
+test -f 'deps/test-src/demonkey.sh.ec'
+test -f 'deps/test-src/bbb.py.ec'
+
+# Run a scan with garbage scanner settings.
+# We haven't changed anything, so we shouldn't run a scanner
+echo 'Run make scan - do not rerun scanners'
+make -f test-booster.makefile PYTHON_SCANNER=false SHELL_SCANNER=false scan
+
+echo 'Run make REQUIRE_SCANS=true scan - do not rerun scanners'
+make -f test-booster.makefile REQUIRE_SCANS=true \
+     PYTHON_SCANNER=false SHELL_SCANNER=false scan
+
+echo 'Run make REQUIRE_SCANS=true where a scanner needs re-running'
+rm deps/test-src/bbb.py.scan
+make -f test-booster.makefile REQUIRE_SCANS=true
+test -f deps/test-src/bbb.py.scan
+
+echo 'Change input file f.txt, and much will be regenerated'
+rm -fr deps/backup/
+cp -pr deps/ deps-backup/
+touch test-src/f.txt
+make -f test-booster.makefile
+# Ensure we regenerated combo.dat and bbb-output.dat, and did *not*
+# regenerate x.dat.  Use a negative test; they may have the *same* time
+! test test-results/combo.dat -ot test-src/f.txt
+! test test-results/bbb-output.dat -ot test-src/f.txt
+! test test-results/x.dat -nt test-src/f.txt
+
+
+echo 'Change test-src/show-args.sh, regenerate some but not others'
+rm -fr deps/backup/
+cp -pr deps/ deps-backup/
+touch test-src/show-args.sh
+make -f test-booster.makefile
+# Ensure we regenerated combo.dat and x.dat, and did *not* regenerate
+# bbb-output.dat.
+# Use a negative test; they may have the *same* time
+! test test-results/combo.dat -ot test-src/show-args.sh
+! test test-results/x.dat -ot test-src/show-args.sh
+! test test-src/show-args.sh -nt test-results/bbb-output.dat

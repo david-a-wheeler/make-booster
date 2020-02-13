@@ -1,0 +1,23 @@
+#!/bin/sh
+
+set -e -u
+
+# Set up to run test suite; main suite is in "./test-booster-body".
+# This way the main suite can simply "exit 1" to fail and we'll
+# print a nice clear statement on whether or not the tests succeeded.
+
+# Automatically try to use pipenv if pylint isn't available otherwise
+if command -v pipenv >/dev/null 2>&1 && ! command -v pylint >/dev/null 2>&1
+then
+  pipenv_run='pipenv run '
+else
+  pipenv_run=''
+fi
+
+# Do *NOT* put "" around $pipenv_run, so we can pass the "run" option
+if $pipenv_run ./test-booster-body; then
+  printf '\n\nTests succeeded!\n'
+else
+  printf '\n\nTESTS FAILED!\n'
+  exit 1
+fi

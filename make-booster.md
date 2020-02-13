@@ -5,9 +5,13 @@ creating data pipelines with Python and GNU make.
 In particular, it helps reliably *reproduce* results
 and it automatically determines what needs to run.
 
-It requires GNU make.
+Make-booster requires GNU make.
+POSIX make simply doesn't have enough capabilities to enable
+creating this in a reasonable amount of time.
+Instead, we need various GNU make extensions.
+In practice, most people who use make use GNU make.
 
-See the README file for a brief description of what it does,
+See the README file for a brief description of what make-booster does,
 how to install it, and a quickstart on how to use it.
 
 This document provides much more detail on the background
@@ -70,34 +74,186 @@ Note: We used GNU make extensions to implement this solution.
 The POSIX standard for makefiles currently lacks too many capabilities
 to be limited to it for this purpose.
 
-## Executable contexts
+## Solution: Source and executable contexts
 
-Our solution is to add rules to document a program's
-"executable context" (EC).
-The EC of some file BBB is the set of files that, if changed,
-should cause re-execution of any command that runs BBB.
+Our solution is to add rules to compute a file's
+"source context" (SC) and "executable context" (EC)
+as part of automatically generating a file's "dependency information"
+(.d file). We need to define these terms (where file BBB, etc.,
+can be a relative directory structure):
 
-In practice, we implement the EC of file BBB as the file "deps/BBB.ec",
-which in turn depends on the following:
+* The source context (SC) of some file BBB is the set of files that,
+  if changed, should cause re-execution of any source code scanner
+  that examines file BBB and all its transitive dependencies.
+  For example, if `BBB.py` includes module `CC` (stored in file `CC.py`),
+  file `CC.py` includes module `DD` (stored in file `DD.py`),
+  and `DD.py` when executed reads file `F.txt`, the source context (SC)
+  of `BBB.py` is `CC.py DD.py` but not `F.txt`.
+  In a makefile the SC of some file BBB is represented by the empty
+  file `deps/BBB.sc`.
+* The internal inputs of some file `BBB` is the set of files reported to
+  be read by file `BBB`.
+  In a makefile the internal inputs of some file BBB (if any) is represented
+  by the empty file `deps/BBB.inputs`.
+* The executable context (EC) of some file BBB is the set of files that,
+  if changed, should cause re-execution of any command that runs BBB.
+  Given the same scenario, the executable context of file `BBB.py` is
+  is `CC.py DD.py F.txt`. Notice that the executable context (EC) is
+  always the union of the files in the source context (SC) with the
+  internal inputs of every file in the source context.
+  In a makefile the EC of some file BBB is represented by the empty
+  file `deps/BBB.ec`.
+* The dependency file of some file BBB is a file that reports the
+  dependencies of file BBB, and is normally automatically generated.
+  Note that you need different tools to generate different dependency files
+  (e.g., a tool for Python3 is needed for Python3 programs).
+  Make-booster comes with a tool for Python3.
+  In a makefile the dependency file of some file BBB is file `deps/BBB.d`,
+  and that dependency file contains the dependency information.
 
-1. the dependency data file "deps/BBB.d".
-   This automatically-generated file reports dependencies in Makefile format,
-   and this dependency data file depends on file BBB.
-2. The EC for every module directly imported by BBB.
-   So if BBB imports CCC, then deps/BBB.ec depends on deps/CCC.ec.
-3. Any (optional) inputs read by BBB.py during execution.
-   These are called "special inputs" and are represented as `deps/BBB.inputs`.
-   These will be found by a program that looks for them
-   during automatic dependency generation.  For this to work we need
-   a source code convention for reporting special inputs;
-   in Python programs we look for a global variable named INPUTS.
+## Convincing make to generate dependency data
 
-We need a rule for creating the files that represent
-executable contexts and special inputs:
+We intentionally put all this information in the "deps/" subdirectory,
+so that the repository is not littered by many subdirectories doing
+different kinds of tracking.
+
+We need rules for automatically generating dependency files and using them.
+
+When GNU make runs, we tell it early on to "include" all of the
+dependency files (`deps/*.d`) for corresponding .py (Python) files.
+If there are any Python files, GNU make will try to load those dependency
+files, and will regenerate them (using rules we provide) if the
+dependency files don't exist or are older than their corresponding Python files.
+Once GNU make generates the dependency files (if necessary), it will
+load them and use that information to determine what to do next.
+
+So early in `booster.makefile` we have this to tell GNU make
+how to create our dependency files (.d files) for Python, where
+`GEN_PYTHON_DEPENDENCIES` has the default value of
+`make-booster/gen_python_dependencies.py`:
+
+~~~~Makefile
+deps/%.py.d: %.py
+	$(MKDIR_P) $(dir $@)
+        $(PYTHON3) $(GEN_PYTHON_DEPENDENCIES) $< > $@
+~~~~
+
+By default this uses a dependency generator program provided by `make-booster`.
+This generator reads Python source code to find import statements,
+then prints to standard output the dependency data in Makefile format.
+This program is specific to Python; in general you need to use different
+tools to report the dependencies for different languages.
+This rule must be stated *before* we "include" dependency files
+(GNU make needs to know the rule to create included files before
+they are included, so that if the file is missing it knows how to create it).
+
+We also need to tell make to use this dependency information. To do this,
+booster.makefile has something like this (we've simplified it here):
+
+~~~~Makefile
+PYTHON_SRC := $(shell find $(SRC_DIR) -name '*.py')
+PYTHON_DEPS := $(PYTHON_SRC:%.py=deps/%.py.d)
+-include $(PYTHON_DEPS)
+~~~~*
+
+If you are adding another programming language named LANG, you would need to
+add similar constructs.
+Basically, add a new dependency target `deps/%.LANG.d: %.LANG`
+with a similar rule for creating dependency files,
+declare `LANG_SRC` and `LANG_DEPS` variables, and use `-include $(LANG_DEPS)`
+to cause the system to generate and use those dependencies.
+Of course, you'll also need a program that can read files in that
+language to report its dependencies.
+The information below, which shows how we do it for Python, should
+be instructive on how to do it for other languages.
+
+That is enough to get started, but there is a subtlety when
+doing this for real.
+We also need to declare the .sc, .ec, and .d files as make secondaries.
+This has two effects.
+First, these internal files in the `deps/ directory
+will be considered a kind of intermediate file;
+make won't bother creating or updating these files unless some *other*
+file forces their creation or updating.
+That way, merely creating the dependency or context data won't cause
+the unnecessary execution of something else.
+Second, they will not be deleted if they happen to be created
+(this is a minor optimization).
+This is true regardless of programming language, so we can use the
+`ALL_SRC` value (which is set of the list of all source files)
+to find them all:
+
+~~~~Makefile
+# Include dependencies in Makefile, and keep .sc, .ec, and .d files around
+ALL_SCS := $(ALL_SRC:%=deps/%.sc)
+ALL_ECS := $(ALL_SRC:%=deps/%.ec)
+ALL_DEPS := $(ALL_SRC:%=deps/%.d)
+# Disable deleting these; we use their presence to prevent unneeded rework
+.SECONDARY: $(ALL_SCS) $(ALL_ECS) $(ALL_DEPS)
+~~~~
+
+If you're adding another language, you'll need to set `ALL_SRC`
+to the other source files you're using.
+Make-booster automatically includes .py and .sh files in the
+source directory (by default `scripts`, but you can set it to something
+else by setting `SRC_DIR`)
+
+
+## Contents of dependency files for implementing contexts
+
+Now that we've convinced GNU make to create dependency files,
+we now need to discuss what those files must contain.
+In particular, these dependency files must implement our contexts.
+
+We do not need add anything more
+to tell `make` that it should regenerate a dependency file
+whenever a change occurs in the file it was created from.
+The dependency-generation rule earlier declared that dependency.
+For example, `deps/%.py.d: %.py` says that whenever the file `%.py`
+changes, `make` must recreate the dependency file.
+
+We need to implement the source context (SC). For file BBB, we implement
+the source context as the file `deps/BBB.sc`, so within the dependency file
+we need to say that `deps/BBB.sc` depends on BBB and on every file CCC
+that is imported by BBB. We can implement the first part using a
+pattern within `booster.makefile`, which will also generate our
+marker file indicating that the source context is current up to that date
+(note that this is a general rule; all source contexts depend at
+least on the source file it represents):
+
+~~~~
+deps/%.sc: %
+	$(MKDIR_P) $(dir $@)
+	touch $@
+~~~~
+
+Note that this is truly generic; you don't need to modify this for
+any particular programming language.
+
+For the second part (dependency on every file CCC imported by BBB),
+our Python dependency generator can generate these from each Python file BBB:
+
+~~~~
+deps/BBB.sc: deps/CCC.sc # For each import by BBB of another file CCC
+~~~~
+
+We also need to implement the executable context (EC), and we will
+do it in similar way.
+For file BBB, we implement
+the executable context as the file `deps/BBB.ec`, so within the dependency file
+we need to say that `deps/BBB.ec` depends on BBB, on every executable
+context of each file CCC imported by BBB, and (if present)
+every internal input declared by BBB.
+The number of imports, internal inputs, or both could be zero.
+We could make a cross-dependency from executable contexts to source
+contexts, but we don't want to force creation of something when it is
+not needed, so we will implement these as separate rules.
+We will create general-purpose rules in `booster.makefile`
+(again these are language-independent):
 
 ~~~~Makefile
 # Executable context (.ec).
-deps/%.ec: deps/%.d
+deps/%.ec: %
 	$(MKDIR_P) $(dir $@)
 	touch $@
 # Special inputs
@@ -106,65 +262,79 @@ deps/%.inputs:
 	touch $@
 ~~~~
 
+Our Python dependency generator will generate the following
+from each Python file BBB:
 
-We need rules for automatically generating dependency files.
+~~~~
+deps/BBB.ec: deps/CCC.ec # For each import by BBB of another file CCC
 
-~~~~Makefile
-# Dependency file, which is auto-generated and loaded into the Makefile.
-# This is only for Python3; other rules would be needed for other languages.
-deps/%.py.d: %.py
-	$(MKDIR_P) $(dir $@)
-	$(PYTHON3) make-booster/gen_python_dependencies.py $< > $@
+deps/BBB.ec: deps/BBB.inputs # If BBB has internal inputs
+deps/BBB.inputs: FFF # For each import by BBB of another file FFF
 ~~~~
 
-We created a `make-booster/gen_python_dependencies.py` file
-that reads source code to find import statements,
-and then prints to standard output its dependency data in Makefile format.
+Detecting the imports chould be relatively easy to implement in
+most languages in most cases, e.g., search for "import".
+Detecting internal inputs is hard, so this to work
+during automatic dependency generation, we need
+a source code convention for reporting internal inputs.
+In our make-booster package, our Python dependency generator
+is named `gen_python_dependencies`.
+It examines each given Python file BBB and
+looks for a global variable named INPUTS, and if present,
+it runs the file BBB and reads its results.
 
-We need to have the Makefile use this dependency information.
-We first need to identify the source code, e.g.,
+If a source file uses *dynamic* imports that isn't easy to automate.
+We discourage dynamic imports, as that makes analysis in general difficult.
+However, if you must do it, we need to be told what its result is.
+E.g., the developer can hand-add to the makefile statements like this
+to express that `WEIRD.py.sc` depends on surprise-dependency.py
+in both its source context and executable context:
 
-~~~~Makefile
-PYTHON_SRC := $(shell find $(SRC_DIR) -name '*.py')
-SHELL_SRC := $(shell find $(SRC_DIR) -name '*.sh')
-ALL_SRC := $(PYTHON_SRC) $(SHELL_SRC)
+~~~~
+deps/WEIRD.py.sc: surprise-dependency.py
+deps/WEIRD.py.ec: surprise-dependency.py
 ~~~~
 
-and later read them in.
-We also need to declare the .ec and .d files as secondaries so that they
-are not deleted once their processing is done.
-
-~~~~Makefile
-# Include dependencies in Makefile, and keep .de and .ec files
-PYTHON_ECS := $(PYTHON_SRC:%.py=deps/%.py.ec)
-PYTHON_DEPS := $(PYTHON_SRC:%.py=deps/%.py.d)
-# Disable deleting these; we use their presence to prevent unneeded rework
-.SECONDARY: $(PYTHON_ECS) $(PYTHON_DEPS)
-
--include $(PYTHON_DEPS)
-~~~~
+Users can also add such makefile statements for internal inputs,
+but those are more common, so it made sense to implement specific support.
 
 ## Tests
+
+In our terminology a "test" is some kind of dynamic execution of a
+program, starting at some point, that returns 0 (no error) if there was
+no problem and non-zero (error) if there was a problem.
 
 We support `make test` to run all tests.
 However, we only want tests to be run when there could be a different result.
 
-We create test representation file "tested/BBB.test" every time a test succeeds
-with BBB as the starting point.  That enables us to skip tests
+We create test representation file "deps/BBB.test" every time a test succeeds
+with BBB as the starting point for the test.
+This test representation file depends on the executable context (ec)
+of that file BBB.  This enables us to skip tests
 that cannot have a changed answer (presuming the underlying environment
 has not changed).  A test of BBB depends on the executable context of BBB.
-Therefore, our rule is:
+Therefore, our rule is something like this in `booster.makefile`
+(where `PYTHON_TESTER` defaults to `pytest`):
 
 ~~~~Makefile
-tested/%.py.test: %.py deps/%.py.ec
+deps/%.py.test: %.py deps/%.py.ec
 	$(MKDIR_P) $(dir $@)
-	pytest $< && touch $@
+        $(PYTHON_TESTER) $< && touch $@
 ~~~~
 
-Our Python dependency generator looks for `def test_` in
-a Python program, and if found in some file BBB, we add a rule that
-`test` depends on `tested/BBB.test` as part of its `.d` file that
-is already included.
+If we only did that, nothing would ask that the corresponding test
+would be executed, so we need more.
+
+We use pytest for our Python test framework.
+To support pytest,
+our Python dependency generator looks for `def test_` in
+a Python program, and if found in some file BBB, we include the
+generated dependency file `deps/BBB.d` a rule that
+`test` depends on `deps/BBB.test`, like this:
+
+~~~~Makefile
+test: deps/BBB.test # If BBB includes a test function.
+~~~~
 
 Our starting test rule simply provides a name to ensure that
 "make test" can always be used:
@@ -173,36 +343,88 @@ Our starting test rule simply provides a name to ensure that
 test:
 ~~~~
 
+Now "make test" will run all depend on all the dependencies with a
+test function, and pytest will be run on all them.
+Tests will be skipped if there was no change in their executable context
+(because if there is no change, the test results will be the same).
+You can force re-running all tests by removing all `.test` files:
+
+~~~~sh
+find deps/ -name '*.test'  -exec rm {}+ \;
+~~~~*
+
 ## Scans
 
+In our terminology a "scan" is execution of all relevant
+static source code analyzers.
 We want to enable scanning source code using `make scan`.
-We expressly list the kinds of files we have scanners for.
+
+A complication is that there are two kinds of source code analysis:
+
+* A "single file" analyzer *only* looks at a single source
+  file (the one it was told to analyze),
+  and there is no kind of transitive analysis of other files
+  when examining a particular file (e.g., shellcheck).
+* A "transitive" analyzer may look at multiple source files when told
+  to analyze at a single file, because it may do transitive analysis of
+  other files referred to by the first file.
+  Believe it or not, modern pylint is in this category.
+  Pylint is *mostly* single file, but it does some import checks,
+  which means that a change in any transitively-imported file
+  can cause pylint to report a failure.
+
+This is different from testing. Testing is always transitive, and is
+also affected by the internal inputs of the program being tested.
+
+We first need to tell the system what files we have scanners for.
 
 ~~~~
-scan: $(patsubst %,scanned/%.scan,$(PYTHON_SRC) $(SHELL_SRC))
+scan: $(patsubst %,deps/%.scan,$(PYTHON_SRC) $(SHELL_SRC))
 ~~~~
 
-Here is a rule for scanning with pylint
-(which does not do any imports):
+If you are adding your own language, you can simply state another
+"scan:" rule with the set of files you can scan.
+
+When adding a single file analyzer, you declare dependency *directly*
+on the file being analyzed (scanned).
+Here is the provided make-booster rule for scanning shell files
+(the default value of `SHELL_SCANNER` is `shellcheck`,
+a single file analyzer):
 
 ~~~~
-scanned/%.py.scan: %.py
-	$(MKDIR_P) $(dir $@)
-	pylint $< && touch $@
+deps/%.sh.scan: %.sh
+        $(MKDIR_P) $(dir $@)
+        $(SHELL_SCANNER) $< && touch $@
 ~~~~
 
-Here is a rule for scanning shell files with shellcheck:
+When adding a transitive analyzer, you declare a dependency on the
+source context of the given file.
+Here is the provided make-booster rule for scanning Python files
+(the default value of `PYTHON_SCANNER` is `pylint`,
+which *does* check imports and is thus a transitive analyzer):
 
 ~~~~
-scanned/%.sh.scan: %.sh
-	$(MKDIR_P) $(dir $@)
-	shellcheck $< && touch $@
+deps/%.py.scan: deps/%.py.sc
+        $(MKDIR_P) $(dir $@)
+        $(PYTHON_SCANNER) $< && touch $@
 ~~~~
 
+??? Clarify how to replace with another tool than pylint
+??? Clarify how to add other languages
+??? Clarify how to disable specific built-in tools & do something else
+
+Scans are considered successful if they return no error (return code 0).
+Once you've run a successful scan, that scan will not be run again
+until you make a change that forces them to be re-run.
+You can force re-running all scans by removing all `.scan` files:
+
+~~~~sh
+find deps/ -name '*.scan'  -exec rm {}+ \;
+~~~~*
 
 ## Reporting scripts that commands depend on
 
-We need developers to report the scripts a command uses.
+Developers need to declare in their Makefiles the scripts a command uses.
 Developers simply include this in their dependency list if they
 depend on script BBB:
 
@@ -210,7 +432,7 @@ depend on script BBB:
 $(call uses,BBB)
 ~~~~
 
-For this to work we must define "uses", which gives the name
+For this to work the make-booster defines "uses", which gives the name
 of the file representing the provided file's executable context.
 
 In practice, we modify "uses" to also provide the name of the
@@ -225,6 +447,8 @@ We use `strip` so a space after a comma is not misinterpreted.
 ~~~~
 uses = deps/$(strip $(1)).ec $(if $(SKIP_SCANS),,scanned/$(strip $(1)).scan)
 ~~~~
+
+??? Use "exec" so running a scanner doesn't force execution of all else
 
 ## Delete on Error
 
@@ -309,3 +533,14 @@ on the marker (sentinel), you must also delete the marker or the files
 won't be rebuilt.
 
 Using `grouped_target` instead solves this problem.
+
+## Other comments
+
+The `booster.makefile` intentionally has commands like mkdir and
+touch on their own line instead of using `&&`.
+GNU make runs simple commands by exec'ing them directly
+(as an optimization), while more complex routines must be
+run through a shell (and thus a shell has to start up and parse them).
+Since these can happen many times, we intentionally use the simpler
+form in many cases so that a shell
+doesn't need to be invoked and process the command.

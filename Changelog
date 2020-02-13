@@ -1,0 +1,30 @@
+* 2019-02-11: Version 1.0. Significant improvements/changes:
+  - All activity markers are now in the "deps/" directory with an
+    extension. Before they were in a variety of directories
+    such as scanned/ and tested/, but this created an untidy
+    collection of top-level directories that most users won't care about.
+    Multiple directories are unnecessary, because these is always a
+    unique filename extension that explains what kind of marker it is.
+  - Fixed subtle bugs in dependencies. Originally an executable context (EC)
+    depended on the dependency file, but that's not right.
+    If we regenerate the dependency file, by itself there's no reason
+    to re-run the program.
+  - Added support for "source context" (SC), which is similar to
+    executable context but doesn't include the runtime inputs.
+    This lets us support different kinds of source code scanners;
+    some scanners only examine one file at a time (e.g., shellcheck),
+    while other scanners examine their source dependency tree (e.g.,
+    more recent versions of pylint).
+  - If you want to completely *disable* the default rules for PYTHON_SCANNER
+    or SHELL_SCANNER, set those values ":".
+  - Modified how "$(call uses, ...)" invokes scans.
+    Before, we made targets directly depend on scans for every program
+    noted with "uses" (unless SKIPS_SCANS was set).
+    That was simple, but it meant that if a scan had to be
+    redone for program P then this *forced* re-execution of every
+    program that uses P, *even* if the scan found there were no problems.
+    For clean scans this is totally unnecessary.
+    Now scans of a program are *not* automatically required when a
+    rule "uses" program unless REQUIRE_SCANS is set.
+    Note that "scan", "check", and "all" still invoke scans by default;
+    we just don't force them at the level of individual rules.

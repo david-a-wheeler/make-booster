@@ -1,7 +1,9 @@
 #!/usr/bin/python3
 """
 Generate Makefile dependencies of a Python program given as file $1.
-WARNING: Do *NOT* use this on untrusted input, as it runs the code of $1.
+
+WARNING: Do *NOT* use this on untrusted input, as it runs the code of $1
+in some cases (whenever it detects INPUT= at the beginning of a line).
 
 The expectation is that this script will be run with input on some filename
 `BBB.py`, and its output will go to `deps/BBB.py.d`.
@@ -9,27 +11,7 @@ BBB will typically be a path including a directory. We intentionally do
 *not* remove the directory, but instead create directories as needed,
 so that we can easily handle multiple directories of code.
 
-The idea is that a user of BBB.py will depend on the
-'executable collection' (ec) deps/BBB.py.ec, which is changed every time:
-    * the dependency data deps/BBB.py.d is changed.
-      This should be already handled by the Makefile, and in particular
-      this must always be forced to update whenever BBB.py itself changes.
-    * The ec for every module directly imported by BBB.py is changed, e.g.,
-      if BBB.py imports module CC, and that module is represented by
-      file CCC.py, then we depend on deps/CCC.py.ec.
-    * Any (optional) inputs used by BBB.py changes (as reported by INPUTS)
-
-This output will contain the following:
-
-The executable context for BBB depends on the BBB.py file itself:
-    deps/BBB.py.ec: BBB.py
-
-For each CCC that BBB imports:
-    deps/BBB.py.ec: deps/CCC.py.ec
-
-If BBB set optional INPUTS:
-    deps/BBB.py.inputs: BBB_INPUTS
-    deps/BBB.py.ec: deps/BBB.py.inputs
+See the file make-booster.md for details.
 """
 
 import sys
@@ -46,7 +28,8 @@ import re
 from importlib import util
 
 # We will *ONLY* return dependencies in this directory or lower.
-# It's odd, but it's a simple & effective way to exclude external packages.
+# This is a simple & effective way to exclude external packages.
+# In the future we may add an option to *not* require a prefix.
 REQUIRED_PATH_PREFIX = os.getcwd()
 
 # This should have been a trivial program to write, but Python
@@ -54,7 +37,7 @@ REQUIRED_PATH_PREFIX = os.getcwd()
 # what I wanted to do:
 # * The built-in __import__ lets you easily find a specific global value,
 #   such as INPUTS.  That enables us to have calculated INPUTS,
-#   so we *do* use that to look for INPUTS.
+#   so we *do* use that approach to load the INPUTS value.
 #   However, __import__ does NOT let us discover imports of the form
 #   "import XYZ from ABC", and it also fails on conditional imports
 #   (and import that only occurs when some "if" condition is true).
@@ -93,6 +76,8 @@ REQUIRED_PATH_PREFIX = os.getcwd()
 # This seems more reliable than the alternatives.
 # This does require "reasonable formatting", specifically, any one import
 # MUST be on a single line and it must begin the line (after any indents).
+# In practice, code formatted that badly would be rejected by
+# many other developers and style checkers, so this isn't a serious problem.
 # It fails on dynamically-generated imports, but at that point the user
 # needs to step in :-).
 # We *do* import the module to look for the INPUTS variable, since that
@@ -112,9 +97,13 @@ def generate_import_dependency(python_file, module_name, line_number):
     mod_file = mod.__file__
     if not mod_file.startswith(REQUIRED_PATH_PREFIX):
         return
-    stripped_mod_file = mod_file[len(REQUIRED_PATH_PREFIX)+1:]
-    # Generate deps/BBB.py.ec: deps/CCC.py.ec
-    print(f'deps/{python_file}.ec: deps/{stripped_mod_file}.ec')
+    dependency = mod_file[len(REQUIRED_PATH_PREFIX)+1:]
+    # We now know that "python_file" (BBB) depends on "dependency" (CCC).
+    # Generate dependency statements.
+    # deps/BBB.py.sc: deps/CCC.py.sc
+    print(f'deps/{python_file}.sc: deps/{dependency}.sc')
+    # deps/BBB.py.ec: deps/CCC.py.ec
+    print(f'deps/{python_file}.ec: deps/{dependency}.ec')
 
 IMPORT_AS_PATTERN = re.compile(r'\s*import\s+([^;#]+)\s+as\s')
 IMPORT_PATTERN = re.compile(r'\s*import\s+([^;#]+)')
@@ -152,7 +141,7 @@ def process_imports(python_file):
                 # No need to continue, there are no other options
     if has_tests:
         # Tell Makefile that running "make test" should include this file.
-        print(f'test: tested/{python_file}.test')
+        print(f'test: deps/{python_file}.test')
     return inputs_was_set
 
 def process_inputs(python_file):
@@ -175,8 +164,6 @@ def process_inputs(python_file):
         formatted_inputs = ' '.join(announced_inputs)
         # Generate deps/BBB.py.inputs: BBB_INPUTS
         print(f'deps/{python_file}.inputs: {formatted_inputs}')
-        # Generate deps/BBB.py.ec: deps/BBB.py.inputs
-        print(f'deps/{python_file}.ec: deps/{python_file}.inputs')
 
 def main(python_file):
     "Main function"
@@ -184,14 +171,20 @@ def main(python_file):
     if not os.path.isfile(python_file):
         print(f'File does not exist: {python_file}', file=sys.stderr)
         sys.exit(1)
-    # deps/BBB.py.ec: BBB.py
-    print(f'deps/{python_file}.ec: {python_file}')
-    # We check for INPUTS and only process_inputs if it exists.
+    # The following would generate "deps/BBB.py.ec: BBB.py":
+    # print(f'deps/{python_file}.ec: {python_file}')
+    # We don't need that, because booster.makefile already states that
+    # "deps/%.ec: %", and that general pattern covers this case.
+    # We check for INPUTS and only process_inputs if that term exists.
     # That way, if a Python program doesn't import cleanly, we can still
-    # handle it as long as it doesn't define INPUTS
+    # handle it as long as it doesn't define INPUTS. It also means we
+    # won't execute Python programs which don't define INPUTS, and not
+    # executing when we don't need to is better for security.
     inputs_was_set = process_imports(python_file)
     if inputs_was_set:
         process_inputs(python_file)
+        # If there were inputs, generate deps/BBB.py.ec: deps/BBB.py.inputs
+        print(f'deps/{python_file}.ec: deps/{python_file}.inputs')
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
