@@ -67,7 +67,7 @@ git clone
 https://github.com/david-a-wheeler/make-booster.git
 ~~~~
 
-To use it, just add this line to your Makefile:
+To use it, you need GNU make installed, and add this line to your Makefile:
 
 ~~~~
 include make-booster/booster.makefile
@@ -163,13 +163,11 @@ BBCC.marker: .... # dependencies of process to generate BB and CC
 <TAB>touch $@
 ~~~~
 
-For more information (including specifics of what it can do and how it works),
-see [make-booster.md](make-booster.md).
-
 ### Python
 
 If your Python program *internally* opens and reads a fixed filename
-(one not noted on the command line), add the following:
+(one not noted on the command line), add the following to the
+.py file that reads the file (this must be executed by loading it):
 
 ~~~~
 INPUTS = [ list_of_filenames_read ]
@@ -193,6 +191,36 @@ This package comes with a test suite inside the `tests/` subdirectory.
 See `tests/test-setup.md` for instructions
 on how to set up and run the test suite.
 Once set up, you can use `cd tests; ./test-booster` to run the tests.
+
+## Apply usual best practices
+
+Since you're using `make` the usual best practices apply:
+
+* Do not use recursive make (that is, executing another make in each
+  subdirectory). That results in multiple executions of make, each
+  with wrong information. It's better to have a single execution of
+  make with all the correct information.
+* In general, use tools to generate dependencies. `make-booster` will
+  help you do that in a number of cases, ensure you do them for the rest.
+  Make works really well when it has all the dependency data it needs, but
+  it doesn't work well if you don't give it correct data; automatically
+  generating dependency data resolves the problem.
+* Prefer `:=` (or `::=`) to set values in makefiles. You *can* use `=`, but
+  that recursively expands on every request, so in most cases it's
+  not really what you want to use.
+* If it's getting excessively complicated, think. Often,
+  if the makefile is complicated, you're doing it wrong.
+* Feel free to use GNU make extensions. There is a POSIX specification
+  for make, but it's so impoverished that it's often not worth trying to
+  use just it. `make-booster` depends on GNU make extensions.
+
+## More information
+
+In short, `make-booster` works by recording dependency information
+in the subdirectory `deps`.
+
+For more information (including specifics of what it can do and how it works),
+see [make-booster.md](make-booster.md).
 
 ## License
 

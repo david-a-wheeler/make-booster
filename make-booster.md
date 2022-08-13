@@ -17,6 +17,12 @@ how to install it, and a quickstart on how to use it.
 This document provides much more detail on the background
 (many data pipelines use make), the problems when doing so, and
 technical specifics about how we implemented this.
+You don't need to understand all this to *use* make-booster,
+but you do need to understand it if you want to expand it
+(e.g., to support other programming languages).
+IT isn't complicated, it just implements an approach
+widely used in compiled languages that data pipe maintainers often
+don't consider.
 
 ## Background: Many data pipelines use make
 
@@ -154,7 +160,7 @@ booster.makefile has something like this (we've simplified it here):
 PYTHON_SRC := $(shell find $(SRC_DIR) -name '*.py')
 PYTHON_DEPS := $(PYTHON_SRC:%.py=deps/%.py.d)
 -include $(PYTHON_DEPS)
-~~~~*
+~~~~
 
 If you are adding another programming language named LANG, you would need to
 add similar constructs.
@@ -221,7 +227,7 @@ marker file indicating that the source context is current up to that date
 (note that this is a general rule; all source contexts depend at
 least on the source file it represents):
 
-~~~~
+~~~~Makefile
 deps/%.sc: %
 	$(MKDIR_P) $(dir $@)
 	touch $@
@@ -233,7 +239,7 @@ any particular programming language.
 For the second part (dependency on every file CCC imported by BBB),
 our Python dependency generator can generate these from each Python file BBB:
 
-~~~~
+~~~~Makefile
 deps/BBB.sc: deps/CCC.sc # For each import by BBB of another file CCC
 ~~~~
 
@@ -265,7 +271,7 @@ deps/%.inputs:
 Our Python dependency generator will generate the following
 from each Python file BBB:
 
-~~~~
+~~~~Makefile
 deps/BBB.ec: deps/CCC.ec # For each import by BBB of another file CCC
 
 deps/BBB.ec: deps/BBB.inputs # If BBB has internal inputs
@@ -290,7 +296,7 @@ E.g., the developer can hand-add to the makefile statements like this
 to express that `WEIRD.py.sc` depends on surprise-dependency.py
 in both its source context and executable context:
 
-~~~~
+~~~~Makefile
 deps/WEIRD.py.sc: surprise-dependency.py
 deps/WEIRD.py.ec: surprise-dependency.py
 ~~~~
@@ -351,7 +357,7 @@ You can force re-running all tests by removing all `.test` files:
 
 ~~~~sh
 find deps/ -name '*.test'  -exec rm {}+ \;
-~~~~*
+~~~~
 
 ## Scans
 
@@ -378,7 +384,7 @@ also affected by the internal inputs of the program being tested.
 
 We first need to tell the system what files we have scanners for.
 
-~~~~
+~~~~Makefile
 scan: $(patsubst %,deps/%.scan,$(PYTHON_SRC) $(SHELL_SRC))
 ~~~~
 
@@ -391,7 +397,7 @@ Here is the provided make-booster rule for scanning shell files
 (the default value of `SHELL_SCANNER` is `shellcheck`,
 a single file analyzer):
 
-~~~~
+~~~~Makefile
 deps/%.sh.scan: %.sh
         $(MKDIR_P) $(dir $@)
         $(SHELL_SCANNER) $< && touch $@
@@ -403,15 +409,32 @@ Here is the provided make-booster rule for scanning Python files
 (the default value of `PYTHON_SCANNER` is `pylint`,
 which *does* check imports and is thus a transitive analyzer):
 
-~~~~
+~~~~Makefile
 deps/%.py.scan: deps/%.py.sc
         $(MKDIR_P) $(dir $@)
         $(PYTHON_SCANNER) $< && touch $@
 ~~~~
 
-??? Clarify how to replace with another tool than pylint
-??? Clarify how to add other languages
-??? Clarify how to disable specific built-in tools & do something else
+You don't *have* to use pylint as the Python scanner or shellcheck
+as the shell scanner. If you want to use a different
+Python scanner, modify your makefile so that just *before* 
+you `include booster.makefile` you set `PYTHON_SCANNER`, e.g.:
+
+~~~~Makefile
+PYTHON_SCANNER := my_pylint
+include booster.makefile
+~~~~
+
+Similarly, to change the shell scanner, set `SHELL_SCANNER`.
+
+You can add support for other languages within your makefile
+and use the same approach. The simple way is to see how Python
+is implemented in `booster.makefile` and so something similar.
+In short, generate the appropriate dependency-related files in `deps/`.
+If you make them general, please feel free to propose those additoins
+to this `make-booster` package. There's no problem adding support for
+new languages, since the added rules won't be used unless there are
+files that indicate the need for them.
 
 Scans are considered successful if they return no error (return code 0).
 Once you've run a successful scan, that scan will not be run again
@@ -420,7 +443,7 @@ You can force re-running all scans by removing all `.scan` files:
 
 ~~~~sh
 find deps/ -name '*.scan'  -exec rm {}+ \;
-~~~~*
+~~~~
 
 ## Reporting scripts that commands depend on
 
@@ -448,11 +471,10 @@ We use `strip` so a space after a comma is not misinterpreted.
 uses = deps/$(strip $(1)).ec $(if $(SKIP_SCANS),,scanned/$(strip $(1)).scan)
 ~~~~
 
-??? Use "exec" so running a scanner doesn't force execution of all else
-
 ## Delete on Error
 
-By default this sets `.DELETE_ON_ERROR`.
+By default `make-booster` sets `.DELETE_ON_ERROR`.
+This is a much safer setting for data pipelines.
 
 As the GNU Make documentation says:
 "Usually when a recipe line fails, if it has changed the target file
@@ -476,7 +498,7 @@ This also implements grouped targets.
 If two or more files (say BB and CC) are generated by a single command,
 have them all depend on and generate a "marker" (sentinel) like this:
 
-~~~~
+~~~~Makefile
 $(call grouped_target,BB CC,BBCC.marker)
 BBCC.marker: .... # dependencies of process to generate BB and CC
 <TAB>command to generate BB and CC
@@ -527,7 +549,7 @@ BB CC: marker ;
 marker: DD EE ...
 ~~~~
 
-however, as noted in _The GNU Make book_ by John Graham-Cumming (2015)
+However, as noted in _The GNU Make book_ by John Graham-Cumming (2015)
 page 96, this has a problem.  If you delete a file that *depends*
 on the marker (sentinel), you must also delete the marker or the files
 won't be rebuilt.
