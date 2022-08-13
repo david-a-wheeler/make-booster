@@ -180,14 +180,28 @@ When the dependency system sees `INPUTS = ...`, it will run that file,
 extract its value of INPUTS, and include that information in the
 dependency system.
 
-### Tools
+### Scanning tools
 
-By default this uses `pylint` to check Python program source code,
-`shellcheck` to check shell source code, and
-`pytest` to run Python tests.
-You can configure all of them.
+By default this uses `pylint` to scan Python program source code and
+`shellcheck` to scan shell source code.
+Set `PYTHON_SCANNER` and `SHELL_SCANNER` if you want to use different ones.
 
-## Test suite
+You can run `make scan` to scan all (changed) source code.
+You can force scanning on all changes by setting `REQUIRE_SCANS`
+to a non-empty value (e.g., `true`).
+
+### Test tools
+
+By default this uses `pytest` to run Python tests.
+Set `PYTHON_TESTER` to use a different one.
+
+If you use pytest, you can include tests in your Python
+program by simply naming functions as `test_WHATEVER`.
+See the pytest documentation for more information.
+
+You can run `make test` to test all code.
+
+## Make-booster self-test suite
 
 This package comes with a test suite inside the `tests/` subdirectory.
 See `tests/test-setup.md` for instructions

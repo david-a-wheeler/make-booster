@@ -100,13 +100,13 @@ deps/%.py.test: %.py deps/%.py.ec
 # so "test" depends on it (e.g., "test: FILE_TO_RUN_AS_TEST").
 # How the test is *run* depends on the deps/*.test rule, e.g,
 # we test programs ending in ".py" by running "pytest" on them.
-# We automatically detect determine Python programs with tests;
+# We automatically detect Python programs with tests;
 # scripts/gen_python_dependencies.py looks for "def test_...".
 # Ideally all Python scripts would be testable, but that requires that they
 # be importable (able to be "import"ed without running anything important).
 # In addition, pytest considers "no test found" to be an error.
-# The scripts/gen_python_dependencies.py file adds
-# This is empty here because other rules (including automatically
+# The scripts/gen_python_dependencies.py file adds dependencies.
+# This is empty here, because other rules (including automatically
 # generated ones) add the needed dependencies.
 .PHONY: test
 test:

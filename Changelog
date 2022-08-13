@@ -1,9 +1,13 @@
+* 2021-08131: Version 1.0.1.
+  - Improved documentation.
+  - Updated Python dependencies.
+
 * 2019-02-11: Version 1.0. Significant improvements/changes:
   - All activity markers are now in the "deps/" directory with an
     extension. Before they were in a variety of directories
     such as scanned/ and tested/, but this created an untidy
     collection of top-level directories that most users won't care about.
-    Multiple directories are unnecessary, because these is always a
+    Multiple directories are unnecessary, because there is always a
     unique filename extension that explains what kind of marker it is.
   - Fixed subtle bugs in dependencies. Originally an executable context (EC)
     depended on the dependency file, but that's not right.
