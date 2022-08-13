@@ -82,7 +82,9 @@ shell scanner (`shellcheck` by default), and Python tester
 (`pytest` by default).
 If you don't like those defaults, set the Make variables
 `PYTHON_SCANNER`, `SHELL_SCANNER`, and/or `PYTHON_TESTER` to your
-values before including `booster.makefile`.
+values before including `booster.makefile` in your makefile.
+You can set them to `:` to disable them completely
+(`:` is the do-nothing command in shell).
 
 ## Quickstart (how to use this)
 
@@ -210,6 +212,7 @@ Since you're using `make` the usual best practices apply:
   not really what you want to use.
 * If it's getting excessively complicated, think. Often,
   if the makefile is complicated, you're doing it wrong.
+  Note that even the file `booster.makefile` is small and mostly comments.
 * Feel free to use GNU make extensions. There is a POSIX specification
   for make, but it's so impoverished that it's often not worth trying to
   use just it. `make-booster` depends on GNU make extensions.
