@@ -177,7 +177,7 @@ That is enough to get started, but there is a subtlety when
 doing this for real.
 We also need to declare the .sc, .ec, and .d files as make secondaries.
 This has two effects.
-First, these internal files in the `deps/ directory
+First, these internal files in the `deps/` directory
 will be considered a kind of intermediate file;
 make won't bother creating or updating these files unless some *other*
 file forces their creation or updating.
