@@ -213,8 +213,9 @@ Once set up, you can use `cd tests; ./test-booster` to run the tests.
 Since you're using `make` the usual best practices apply:
 
 * Do not use recursive make (that is, executing another make in each
-  subdirectory). That results in multiple executions of make, each
-  with wrong information. It's better to have a single execution of
+  subdirectory). Recursive make typically results in
+  multiple executions of make, each with wrong information.
+  It's much better (and faster) to have a single execution of
   make with all the correct information.
 * In general, use tools to generate dependencies. `make-booster` will
   help you do that in a number of cases, ensure you do them for the rest.
