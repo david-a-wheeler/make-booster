@@ -240,10 +240,16 @@ in the subdirectory `deps`.
 For more information (including specifics of what it can do and how it works),
 see [make-booster.md](make-booster.md).
 
+There are various ways to try to detect makefile errors.
+One mechanism is my tool
+[`make-audit`](https://github.com/david-a-wheeler/make-audit).
+
 ## License
 
 This software is released under the MIT (expat) license, see
 [LICENSE.txt](LICENSE.txt).
+Note that it depends on other tools, like `pmaudit` and `GNU make`,
+which have their own licenses.
 
 The original software is
 (C) Copyright 2019-2020 Institute for Defense Analyses (IDA).
